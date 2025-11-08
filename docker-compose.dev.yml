@@ -1,0 +1,79 @@
+version: '3.8'
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: messenger
+      POSTGRES_PASSWORD: messenger
+      POSTGRES_DB: messenger
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - '5432:5432'
+
+  redis:
+    image: redis:7
+    command: ["redis-server", "--save", "60", "1", "--appendonly", "yes"]
+    ports:
+      - '6379:6379'
+
+  minio:
+    image: minio/minio:latest
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: server /data
+    ports:
+      - '9000:9000'
+
+  mongo:
+    image: mongo:6.0
+    ports:
+      - '27017:27017'
+
+  core-service:
+    build: ./services/core-auth-messaging-service
+    environment:
+      SPRING_DATA_MONGODB_URI: mongodb://mongo:27017/messenger
+      REDIS_URL: redis://redis:6379
+      MINIO_ENDPOINT: http://minio:9000
+      APP_JWT_SECRET: ${APP_JWT_SECRET}
+    depends_on:
+      - mongo
+      - redis
+      - minio
+    ports:
+      - '8080:8080'
+
+  notify-service:
+    build: ./services/notification-presence-service
+    environment:
+      REDIS_URL: redis://redis:6379
+      CORE_SERVICE_URL: http://core-service:8080
+    depends_on:
+      - redis
+      - core-service
+    ports:
+      - '4000:4000'
+
+  frontend:
+    build: ./services/frontend
+    ports:
+      - '3000:3000'
+    environment:
+      VITE_API_BASE: http://localhost:8080/api/v1
+
+  frontend-dev:
+    image: node:20
+    working_dir: /app
+    volumes:
+      - ./services/frontend:/app
+      - /app/node_modules
+    command: ["/bin/sh","-c","npm ci && npm run dev -- --host 0.0.0.0 --port 3000"]
+    ports:
+      - '3000:3000'
+    environment:
+      VITE_API_BASE: http://localhost:8080/api/v1
+
+volumes:
+  pgdata:
